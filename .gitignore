@@ -102,3 +102,12 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+.DS_Store
+
+weights/
+weights2/
+weights3/
+
+.vscode/
+
