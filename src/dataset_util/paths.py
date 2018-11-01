@@ -5,8 +5,10 @@ def load_all_images_in_dir(dirName):
     valid_ext = ["bmp", "jpg", "png"]
     for (dirpath, dirnames, filenames) in os.walk(dirName):
             for file in filenames:
-                    if file.split(".")[-1] in valid_ext:
-                            listOfFiles += [os.path.join(dirpath, file)]
+                if "_flip" in file:
+                    continue
+                if file.split(".")[-1] in valid_ext:
+                    listOfFiles += [os.path.join(dirpath, file)]
 
     return listOfFiles
 

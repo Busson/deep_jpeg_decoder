@@ -14,7 +14,7 @@ def unet_conv2d_block(input_conv, num_filters, kernel_dim, is_training, use_bn, 
     conv = tf.layers.conv2d(inputs=input_conv, filters=num_filters, kernel_size=kernel_dim, strides=1, activation=None, padding='SAME', kernel_initializer=k_initializer)
     
     if use_bn:
-        batch = tf.layers.batch_normalization(conv, momentum=0.90, epsilon=0.0001, training=is_training)
+        batch = tf.layers.batch_normalization(conv, momentum=0.9, training=is_training)
         conv = tf.nn.relu(batch)
     else:
         conv = tf.nn.relu(conv)
@@ -22,7 +22,7 @@ def unet_conv2d_block(input_conv, num_filters, kernel_dim, is_training, use_bn, 
     conv = tf.layers.conv2d(inputs=conv, filters=num_filters, kernel_size=kernel_dim, strides=1, activation=None, padding='SAME', kernel_initializer=k_initializer) 
 
     if use_bn:
-        batch = tf.layers.batch_normalization(conv, momentum=0.90, epsilon=0.0001, training=is_training)
+        batch = tf.layers.batch_normalization(conv, momentum=0.9, training=is_training)
         conv = tf.nn.relu(batch)
     else:
         conv = tf.nn.relu(conv)
@@ -36,16 +36,18 @@ def unet(img_w, img_h, img_c, init_kernel_size=12, batch_norm=True):
     lr_placeholder = tf.placeholder(tf.float32)
     train_placeholder = tf.placeholder(tf.bool)
 
+    zigzag_factor = tf.placeholder(tf.float32, shape=(None, img_w, img_h, 1))
+
     #xavier initialization
     initializer = tf.contrib.layers.xavier_initializer(seed = 0)
 
     #96x96
-    conv1 = unet_conv2d_block(input_conv=X_placeholder, num_filters=init_kernel_size, kernel_dim=[8,8], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
+    conv1 = unet_conv2d_block(input_conv=X_placeholder, num_filters=init_kernel_size, kernel_dim=[9,9], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
     max1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
     print(max1.get_shape())
     
     #48x48    
-    conv2 = unet_conv2d_block(input_conv=max1, num_filters=init_kernel_size*2, kernel_dim=[4,4], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
+    conv2 = unet_conv2d_block(input_conv=max1, num_filters=init_kernel_size*2, kernel_dim=[3,3], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
     max2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=2)
     print(max2.get_shape())
 
@@ -89,24 +91,27 @@ def unet(img_w, img_h, img_c, init_kernel_size=12, batch_norm=True):
     #48x48
     up2 = tf.layers.conv2d_transpose(inputs=conv3, filters=init_kernel_size*2, kernel_size=[3,3], strides=2, activation=tf.nn.relu, padding='SAME', kernel_initializer=initializer)
     up2 = tf.concat([conv2, up2], 3)
-    conv2 = unet_conv2d_block(input_conv=up2, num_filters=init_kernel_size*2, kernel_dim=[4,4], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
+    conv2 = unet_conv2d_block(input_conv=up2, num_filters=init_kernel_size*2, kernel_dim=[3,3], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
     print(conv2.get_shape())
 
     #96x96
-    up1 = tf.layers.conv2d_transpose(inputs=conv2, filters=init_kernel_size, kernel_size=[4,4], strides=2, activation=tf.nn.relu, padding='SAME', kernel_initializer=initializer)
+    up1 = tf.layers.conv2d_transpose(inputs=conv2, filters=init_kernel_size, kernel_size=[3,3], strides=2, activation=tf.nn.relu, padding='SAME', kernel_initializer=initializer)
     up1 = tf.concat([conv1, up1], 3)
     conv1 = unet_conv2d_block(input_conv=up1, num_filters=init_kernel_size, kernel_dim=[8,8], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
     print(conv1.get_shape())
 
     output_layer = tf.layers.conv2d(inputs=conv1, filters=img_c, kernel_size=[1,1], strides=1, activation=None, padding = 'SAME', kernel_initializer=initializer)
 
+    #output_layer = output_layer + X_placeholder 
+
     #mse
-    loss = tf.reduce_mean(tf.square(output_layer - Y_placeholder))
+    loss = tf.reduce_mean(tf.square( tf.subtract(output_layer,Y_placeholder)))
+    #loss = tf.reduce_mean(tf.square(tf.multiply(output_layer - Y_placeholder, zigzag_factor)))
 
     with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
         opt = tf.train.AdamOptimizer(learning_rate=lr_placeholder).minimize(loss)
 
-    return X_placeholder, Y_placeholder, lr_placeholder, train_placeholder, output_layer, loss, opt
+    return X_placeholder, Y_placeholder, zigzag_factor, lr_placeholder, train_placeholder, output_layer, loss, opt
 
 def conv_layer(conv_input, n_filters, kernel, stride, initializer, train_placeholder):
     conv1 = tf.layers.conv2d(inputs=conv_input, filters=n_filters, kernel_size=kernel, strides=1, activation= tf.nn.relu, padding='SAME', kernel_initializer=initializer)
@@ -178,12 +183,20 @@ def build_dnCNN(img_w, img_h, img_c):
 TRAIN_X, TRAIN_Y, VALID_X, VALID_Y, TEST_X, TEST_Y = load_dataset("../stl10/")
 
 minibatches_train = load_minibatches(TRAIN_X, TRAIN_Y, 128)
-minibatches_train = minibatches_train[:2]
+#minibatches_train = minibatches_train[:1]
 
 minibatches_valid = load_minibatches(VALID_X, VALID_Y, 128)
 
+minibatches_test = load_minibatches(TEST_X, TEST_Y, 128)
+
+w_image = np.zeros((1,IMG_DEFAULT_SIZE,IMG_DEFAULT_SIZE,1))
+
+w_image[0,:,:,0] = create_zizag_weights(IMG_DEFAULT_SIZE, IMG_DEFAULT_SIZE)
+
+#print(w_image)
+
 #learning_rate = 0.001
-learning_rate = 0.001
+learning_rate = 0.1
 
 train = True
 
@@ -194,14 +207,14 @@ config.gpu_options.per_process_gpu_memory_fraction = 0.8
 
 sess = tf.InteractiveSession()
 
-X_placeholder, Y_placeholder, lr_placeholder, train_placeholder, output_layer, loss, opt = unet(img_w=96, img_h=96, img_c=1, init_kernel_size=32, batch_norm=True)
+X_placeholder, Y_placeholder, zigzag_factor, lr_placeholder, train_placeholder, output_layer, loss, opt = unet(img_w=IMG_DEFAULT_SIZE, img_h=IMG_DEFAULT_SIZE, img_c=3, init_kernel_size=64, batch_norm=True)
 
 sess.run(tf.global_variables_initializer())
 
-epochs=100
+epochs=2000
 
 saver = tf.train.Saver()
-saver.restore(sess, "weights/model_10.ckpt")
+#saver.restore(sess, "weights/model_1.ckpt")
 
 if train == True:
     for i in range(epochs):
@@ -210,24 +223,20 @@ if train == True:
         #for m_i, minibatch in enumerate (tqdm(minibatches_train)):
         for m_i, minibatch in enumerate(minibatches_train):
             (minibatch_X, minibatch_Y) = minibatch
-            #minibatch_X = minibatch_X[:10]
-            #minibatch_Y = minibatch_Y[:10]
-            _, mb_erro = sess.run([opt,loss], feed_dict={X_placeholder: minibatch_X[:,:,:,:1], Y_placeholder: minibatch_Y[:,:,:,:1], lr_placeholder: learning_rate, train_placeholder: True})
+            _, mb_erro = sess.run([opt,loss], feed_dict={X_placeholder: minibatch_X[:,:,:,:], Y_placeholder: minibatch_Y[:,:,:,:], zigzag_factor: w_image[:,:,:,:], lr_placeholder: learning_rate, train_placeholder: True})
             mean_batch_error += mb_erro
            
            
         mean_batch_error = float(mean_batch_error/len(minibatches_train))
         print("train:", "epoch", i, "mean batch error:", mean_batch_error)
         #for m_i, minibatch in enumerate (tqdm(minibatches_train)):
-        for m_i, minibatch in enumerate(minibatches_valid):
+        for m_i, minibatch in enumerate(minibatches_train):
             (minibatch_X, minibatch_Y) = minibatch
-            #minibatch_X = minibatch_X[:10]
-            #minibatch_Y = minibatch_Y[:10]
-            predict = sess.run(output_layer, feed_dict={X_placeholder: minibatch_X[:,:,:,:1], train_placeholder: False})
+            predict = sess.run(output_layer, feed_dict={X_placeholder: minibatch_X[:,:,:,:], train_placeholder: False})
             evaluate_model(minibatch_X.copy(), minibatch_Y.copy(), predict.copy(), write_out=False) 
         
 
-    save_path = saver.save(sess, "weights/model_10.ckpt")
+    save_path = saver.save(sess, "weights/model_1.ckpt")
     print("new best model saved at ...", save_path)
 
 else:
@@ -238,54 +247,4 @@ else:
     predict = sess.run(output_layer, feed_dict={X_placeholder: minibatch_X[:,:,:,:1], train_placeholder: False})
     evaluate_model(minibatch_X.copy(), minibatch_Y.copy(), predict.copy(), write_out=True)
 
-    '''
-    #saver.restore(sess, "weights/model_1.ckpt")
-    output_model = sess.run(output_layer, feed_dict={X_placeholder: x_batch, train_placeholder: False})
-
-    #view - debug
-    qtable_luma_100, qtable_chroma_100 = generate_qtables(quality_factor=100)
-    qtable_luma_10, qtable_chroma_10 = generate_qtables(quality_factor=10)
-
-    dct_sp_0 = np.zeros((96,96,3))
-    #print(output_model.shape)
-    dct_sp_0[:,:,0] = output_model[0,:,:,0] + dct_10_1[:,:,0]
-    dct_sp_0[:,:,1] = dct_10_1[:,:,1]
-    dct_sp_0[:,:,2] = dct_10_1[:,:,2]
-
-    dct_sp_1 = np.zeros((96,96,3))
-    #print(output_model.shape)
-    dct_sp_1[:,:,0] = output_model[1,:,:,0] + dct_10_2[:,:,0]
-    dct_sp_1[:,:,1] = dct_10_2[:,:,1]
-    dct_sp_1[:,:,2] = dct_10_2[:,:,2]
-
-    dec_img_100_0 = decode_image(dct_100_1, qtable_luma_100, qtable_chroma_100)
-    dec_img_100_1 = decode_image(dct_100_2, qtable_luma_100, qtable_chroma_100)
-    dec_img_10_0 = decode_image(dct_10_1, qtable_luma_10, qtable_chroma_10)
-    dec_img_10_1 = decode_image(dct_10_2, qtable_luma_10, qtable_chroma_10)
-    dec_img_sp_0 = decode_image(dct_sp_0, qtable_luma_100, qtable_chroma_10)
-    dec_img_sp_1 = decode_image(dct_sp_1, qtable_luma_100, qtable_chroma_10)
-
-
-    print("100 - NRMSE:", calc_nrmse(dec_img_100_1, dec_img_100_1), 
-    "SSIM:", calc_ssim(dec_img_100_1, dec_img_100_1),
-    "PSNR:", calc_psnr(dec_img_100_1, dec_img_100_1))
-
-    print("10 - NRMSE:", calc_nrmse(dec_img_100_1, dec_img_10_1), 
-    "SSIM:", calc_ssim(dec_img_100_1, dec_img_10_1),
-    "PSNR:", calc_psnr(dec_img_100_1, dec_img_10_1))
-
-    print("PR - NRMSE:", calc_nrmse(dec_img_100_1, dec_img_sp_1), 
-    "SSIM:", calc_ssim(dec_img_100_1, dec_img_sp_1),
-    "PSNR:", calc_psnr(dec_img_100_1, dec_img_sp_1))
-
-    print(output_model[0,:,:,0] + dct_10_2[:,:,0])
-    print(dct_100_2[:,:,0])
-
-    
-    stack0 = np.hstack([dec_img_100_0, dec_img_10_0, dec_img_sp_0])
-    stack1 = np.hstack([dec_img_100_1, dec_img_10_1, dec_img_sp_1])
-    stack = np.vstack([stack0,stack1])
-
-    cv2.imshow('image',stack)
-    cv2.waitKey(0)
-    '''
+ 

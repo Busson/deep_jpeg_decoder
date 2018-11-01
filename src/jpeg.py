@@ -18,6 +18,8 @@ import numpy as np
 import math
 from scipy import fftpack
 
+IMG_DEFAULT_SIZE = 96
+
 
 zigzag_table = np.array([[0, 1, 5, 6,14,15,27,28],
                          [2, 4, 7,13,16,26,29,42],
@@ -175,6 +177,17 @@ def unquantize_dct_block(quantized_block, channel, qtable_luma, qtable_chroma):
                 quantized_block[i][j] = np.round((quantized_block[i][j]*qtable_chroma[i][j]), 0)
             
     return quantized_block
+
+def create_zizag_weights(width, height):
+    global zigzag_table
+    new_image = np.zeros((width,height), np.float32)
+
+    for pos_x in range(0, width, 8):
+        for pos_y in range(0, height, 8):
+            new_image[pos_y:pos_y+8, pos_x:pos_x+8] = ((zigzag_table-64)*-1)/32
+
+
+    return new_image
 
 def quantization_dct_image(dct_image, qtable_luma, qtable_chroma, op="quantize"):
     width = dct_image.shape[0]

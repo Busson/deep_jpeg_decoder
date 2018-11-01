@@ -48,7 +48,7 @@ def load_dcts(file_name, etx_sep):
 def load_minibatches(X_DATASET, Y_DATASET, mini_batch_size = 64):
     m = X_DATASET.shape[0]                 
     mini_batches = []
-  
+
     # Step 2: Partition (shuffled_X, shuffled_Y). Minus the end case.
     num_complete_minibatches = math.floor(m/mini_batch_size) # number of mini batches of size mini_batch_size in your partitionning
     for k in range(0, num_complete_minibatches):
@@ -75,33 +75,47 @@ def gen_x_and_y(SET):
 
     set_lenght = len(SET)
 
-    x_set = np.zeros((set_lenght,96,96,3))
-    y_set = np.zeros((set_lenght,96,96,3))
+    x_set = np.zeros((set_lenght,IMG_DEFAULT_SIZE,IMG_DEFAULT_SIZE,3))
+    y_set = np.zeros((set_lenght,IMG_DEFAULT_SIZE,IMG_DEFAULT_SIZE,3))
 
     for i, filePath in enumerate(SET):
-        dct_100, dct_10 = load_dcts(filePath, ".bmp")
+        dct_100, dct_10 = load_dcts(filePath, ".png")
 
         x_set[i,:,:,:] =  dct_10[:,:,:]
-        y_set[i,:,:,:] = dct_100[:,:,:] - dct_10[:,:,:]
+        y_set[i,:,:,:] = dct_100[:,:,:]
     
     return x_set, y_set
+
+def insert_augmentation(data_list):
+    new_data_list = []
+    for data in data_list:
+        new_data_list.append(data)
+        file_x = data.split('.png')[0]+"_flip_x.png"
+        new_data_list.append(file_x)
+        file_y = data.split('.png')[0]+"_flip_y.png"
+        new_data_list.append(file_y)
+        file_xy = data.split('.png')[0]+"_flip_xy.png"
+        new_data_list.append(file_xy)
+    
+    return new_data_list
 
 def load_dataset(datasetDir):
 
     fileList = load_all_images_in_dir(datasetDir)
 
     #fileDic = split_by_category(fileList, ["1","2","3","4","5","6","7","8","9","10"], -2)
-    fileDic = split_by_category(fileList, ["2"], -2)
+    fileDic = split_by_category(fileList, ["obama"], -2)
     TRAIN = []
     VALID = []
     TEST = []
     for category, fileList_byCat in fileDic.items():
         print("Class:", category, "Length:", len(fileList_byCat))
-        train, valid, test = split_dataset(fileList_byCat,0.95,0.975)
+        train, valid, test = split_dataset(fileList_byCat,0.8,0.9)
         TRAIN += train
         VALID += valid
         TEST += test 
     
+    TRAIN = insert_augmentation(TRAIN)
     TRAIN = np.asarray(TRAIN, dtype=np.unicode_)
     VALID = np.asarray(VALID, dtype=np.unicode_)
     TEST = np.asarray(TEST, dtype=np.unicode_)
