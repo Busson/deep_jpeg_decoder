@@ -2,6 +2,7 @@ import numpy as np
 from skimage.measure import compare_ssim, compare_psnr, compare_nrmse
 import cv2
 from jpeg import *
+from image_processing.extract_patches import *
 
 
 def calc_nrmse(img_ref, img_test):
