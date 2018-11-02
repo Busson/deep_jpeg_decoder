@@ -78,6 +78,14 @@ def recover_patches(dcts, quality):
         
     return batch
 
+def recover_predict(pred_dcts, quality1=100, quality2=10):
+    qtable_luma1, qtable_chroma1 = generate_qtables(quality_factor=quality1)
+    qtable_luma2, qtable_chroma2 = generate_qtables(quality_factor=quality2)
+    batch = np.zeros((pred_dcts.shape[0], pred_dcts.shape[1], pred_dcts.shape[2], pred_dcts.shape[3]))
+    for i in range(pred_dcts.shape[0]):
+        batch[i,:,:,:] = decode_image(pred_dcts[i,:,:,:], qtable_luma1, qtable_chroma2)
+        
+    return batch
 
 '''
 batch = extract_patches("images/frame1.jpeg")
@@ -90,8 +98,6 @@ img10 = recover_patches(dct10,10)
 cv2.imshow('image100', merge_patches(img100))
 cv2.imshow('image10', merge_patches(img10))
 cv2.waitKey(0)
-
-
 
 
 for i in range(batch.shape[0]):

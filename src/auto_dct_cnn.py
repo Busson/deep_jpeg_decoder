@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
-from dataset_util.dataset_loader import *
+from image_processing.extract_patches import *
 from jpeg import *
 from evaluate import *
 import os
@@ -96,8 +96,8 @@ def unet(img_w, img_h, img_c, init_kernel_size=12, batch_norm=True):
 
     #96x96
     up1 = tf.layers.conv2d_transpose(inputs=conv2, filters=init_kernel_size, kernel_size=[3,3], strides=2, activation=tf.nn.relu, padding='SAME', kernel_initializer=initializer)
-    up1 = tf.concat([conv1, up1, dct_coefs_map], 3)
-    #up1 = tf.concat([conv1, up1], 3)
+    #up1 = tf.concat([conv1, up1, dct_coefs_map], 3)
+    up1 = tf.concat([conv1, up1], 3)
     conv1 = unet_conv2d_block(input_conv=up1, num_filters=init_kernel_size, kernel_dim=[8,8], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
     print(conv1.get_shape())
 
@@ -180,18 +180,9 @@ def build_dnCNN(img_w, img_h, img_c):
 
 
 
-TRAIN_X, TRAIN_Y, VALID_X, VALID_Y, TEST_X, TEST_Y = load_dataset("../stl10/")
+batch = extract_patches("images/frame1.jpeg")
 
-minibatches_train = load_minibatches(TRAIN_X, TRAIN_Y, 128)
-#minibatches_train = minibatches_train[:1]
-
-minibatches_valid = load_minibatches(VALID_X, VALID_Y, 128)
-
-minibatches_test = load_minibatches(TEST_X, TEST_Y, 128)
-
-w_image = np.zeros((1,IMG_DEFAULT_SIZE,IMG_DEFAULT_SIZE,1))
-
-w_image[0,:,:,0] = create_zizag_weights(IMG_DEFAULT_SIZE, IMG_DEFAULT_SIZE)
+dct100, dct10 = get_patches_dcts(batch)
 
 #print(w_image)
 
@@ -200,10 +191,7 @@ learning_rate = 0.1
 
 train = True
 
-config = tf.ConfigProto()
-config.gpu_options.allocator_type = 'BFC'
-config.gpu_options.allow_growth = True
-config.gpu_options.per_process_gpu_memory_fraction = 0.8
+
 
 sess = tf.InteractiveSession()
 
@@ -222,33 +210,19 @@ best_quality = 0
 if train == True:
     for i in range(epochs):
 
-        mean_batch_error = 0
-        #for m_i, minibatch in enumerate (tqdm(minibatches_train)):
-        for m_i, minibatch in enumerate(minibatches_train):
-            (minibatch_X, minibatch_Y) = minibatch
-            minibatch_X = minibatch_X[:1]
-            minibatch_Y = minibatch_Y[:1]
-            coef_map = dct_prob_map(minibatch_Y[0,:,:,0])
-
-            _, mb_erro = sess.run([opt,loss], feed_dict={X_placeholder: minibatch_X[:,:,:,:1], Y_placeholder: minibatch_Y[:,:,:,:1], dct_coefs_map: coef_map, lr_placeholder: learning_rate, train_placeholder: True})
-            mean_batch_error += mb_erro
+        _, mb_erro = sess.run([opt,loss], feed_dict={X_placeholder: dct10[:,:,:,:1], Y_placeholder: dct100[:,:,:,:1], lr_placeholder: learning_rate, train_placeholder: True})
            
-           
-        mean_batch_error = float(mean_batch_error/len(minibatches_train))
-        print("train:", "epoch", i, "mean batch error:", mean_batch_error)
-        #for m_i, minibatch in enumerate (tqdm(minibatches_train)):
-        for m_i, minibatch in enumerate(minibatches_train):
-            (minibatch_X, minibatch_Y) = minibatch
-            minibatch_X = minibatch_X[:1]
-            minibatch_Y = minibatch_Y[:1]
-            coef_map = dct_prob_map(minibatch_Y[0,:,:,0])
+        print("train:", "epoch", i, "mean batch error:", mb_erro)
 
-            predict = sess.run(output_layer, feed_dict={X_placeholder: minibatch_X[:,:,:,:1], dct_coefs_map: coef_map, train_placeholder: False})
-            quality = evaluate_model(minibatch_X.copy(), minibatch_Y.copy(), predict.copy(), write_out=False) 
+        if i > 0 and i%5 == 0:
+            
+            predict = sess.run(output_layer, feed_dict={X_placeholder: dct10[:,:,:,:1], train_placeholder: False})
+            quality = evaluate_model(dct10.copy(), dct100.copy(), predict.copy(), write_out=False) 
             if quality > best_quality and quality > 0.75:
                 best_quality = quality
-                #save_path = saver.save(sess, "weights/model_2.ckpt")
-                #print("new best model saved at ...", save_path)
+                save_path = saver.save(sess, "weights/model_2.ckpt")
+                print("new best model saved at ...", save_path)
+'''
 else:
 
     (minibatch_X, minibatch_Y) = minibatches_test[0]
@@ -256,5 +230,5 @@ else:
     #minibatch_Y = minibatch_Y[:1]
     predict = sess.run(output_layer, feed_dict={X_placeholder: minibatch_X[:,:,:,:1], train_placeholder: False})
     evaluate_model(minibatch_X.copy(), minibatch_Y.copy(), predict.copy(), write_out=True)
-
+'''
  
