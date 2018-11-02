@@ -15,17 +15,17 @@ def unet_conv2d_block(input_conv, num_filters, kernel_dim, is_training, use_bn, 
     
     if use_bn:
         batch = tf.layers.batch_normalization(conv, momentum=0.9, training=is_training)
-        conv = tf.nn.relu(batch)
+        conv = tf.nn.leaky_relu(batch, alpha=0.5)
     else:
-        conv = tf.nn.relu(conv)
+        conv = tf.nn.leaky_relu(conv, alpha=0.5)
 
     conv = tf.layers.conv2d(inputs=conv, filters=num_filters, kernel_size=kernel_dim, strides=1, activation=None, padding='SAME', kernel_initializer=k_initializer) 
 
     if use_bn:
         batch = tf.layers.batch_normalization(conv, momentum=0.9, training=is_training)
-        conv = tf.nn.relu(batch)
+        conv = tf.nn.leaky_relu(batch, alpha=0.5)
     else:
-        conv = tf.nn.relu(conv)
+        conv = tf.nn.leaky_relu(conv, alpha=0.5)
 
     return conv
 
@@ -36,13 +36,13 @@ def unet(img_w, img_h, img_c, init_kernel_size=12, batch_norm=True):
     lr_placeholder = tf.placeholder(tf.float32)
     train_placeholder = tf.placeholder(tf.bool)
 
-    zigzag_factor = tf.placeholder(tf.float32, shape=(None, img_w, img_h, 1))
+    dct_coefs_map = tf.placeholder(tf.float32, shape=(None, img_w, img_h, 1))
 
     #xavier initialization
     initializer = tf.contrib.layers.xavier_initializer(seed = 0)
 
     #96x96
-    conv1 = unet_conv2d_block(input_conv=X_placeholder, num_filters=init_kernel_size, kernel_dim=[9,9], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
+    conv1 = unet_conv2d_block(input_conv=X_placeholder, num_filters=init_kernel_size, kernel_dim=[16,16], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
     max1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
     print(max1.get_shape())
     
@@ -96,7 +96,8 @@ def unet(img_w, img_h, img_c, init_kernel_size=12, batch_norm=True):
 
     #96x96
     up1 = tf.layers.conv2d_transpose(inputs=conv2, filters=init_kernel_size, kernel_size=[3,3], strides=2, activation=tf.nn.relu, padding='SAME', kernel_initializer=initializer)
-    up1 = tf.concat([conv1, up1], 3)
+    up1 = tf.concat([conv1, up1, dct_coefs_map], 3)
+    #up1 = tf.concat([conv1, up1], 3)
     conv1 = unet_conv2d_block(input_conv=up1, num_filters=init_kernel_size, kernel_dim=[8,8], is_training=train_placeholder, use_bn=batch_norm, k_initializer=initializer)
     print(conv1.get_shape())
 
@@ -106,12 +107,11 @@ def unet(img_w, img_h, img_c, init_kernel_size=12, batch_norm=True):
 
     #mse
     loss = tf.reduce_mean(tf.square( tf.subtract(output_layer,Y_placeholder)))
-    #loss = tf.reduce_mean(tf.square(tf.multiply(output_layer - Y_placeholder, zigzag_factor)))
-
+   
     with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
         opt = tf.train.AdamOptimizer(learning_rate=lr_placeholder).minimize(loss)
 
-    return X_placeholder, Y_placeholder, zigzag_factor, lr_placeholder, train_placeholder, output_layer, loss, opt
+    return X_placeholder, Y_placeholder, dct_coefs_map, lr_placeholder, train_placeholder, output_layer, loss, opt
 
 def conv_layer(conv_input, n_filters, kernel, stride, initializer, train_placeholder):
     conv1 = tf.layers.conv2d(inputs=conv_input, filters=n_filters, kernel_size=kernel, strides=1, activation= tf.nn.relu, padding='SAME', kernel_initializer=initializer)
@@ -207,14 +207,17 @@ config.gpu_options.per_process_gpu_memory_fraction = 0.8
 
 sess = tf.InteractiveSession()
 
-X_placeholder, Y_placeholder, zigzag_factor, lr_placeholder, train_placeholder, output_layer, loss, opt = unet(img_w=IMG_DEFAULT_SIZE, img_h=IMG_DEFAULT_SIZE, img_c=3, init_kernel_size=64, batch_norm=True)
+X_placeholder, Y_placeholder, dct_coefs_map, lr_placeholder, train_placeholder, output_layer, loss, opt = unet(img_w=IMG_DEFAULT_SIZE, img_h=IMG_DEFAULT_SIZE, img_c=1, init_kernel_size=16, batch_norm=True)
 
 sess.run(tf.global_variables_initializer())
 
-epochs=2000
+epochs=200
 
 saver = tf.train.Saver()
-#saver.restore(sess, "weights/model_1.ckpt")
+#saver.restore(sess, "weights/model_2.ckpt")
+
+
+best_quality = 0
 
 if train == True:
     for i in range(epochs):
@@ -223,7 +226,11 @@ if train == True:
         #for m_i, minibatch in enumerate (tqdm(minibatches_train)):
         for m_i, minibatch in enumerate(minibatches_train):
             (minibatch_X, minibatch_Y) = minibatch
-            _, mb_erro = sess.run([opt,loss], feed_dict={X_placeholder: minibatch_X[:,:,:,:], Y_placeholder: minibatch_Y[:,:,:,:], zigzag_factor: w_image[:,:,:,:], lr_placeholder: learning_rate, train_placeholder: True})
+            minibatch_X = minibatch_X[:1]
+            minibatch_Y = minibatch_Y[:1]
+            coef_map = dct_prob_map(minibatch_Y[0,:,:,0])
+
+            _, mb_erro = sess.run([opt,loss], feed_dict={X_placeholder: minibatch_X[:,:,:,:1], Y_placeholder: minibatch_Y[:,:,:,:1], dct_coefs_map: coef_map, lr_placeholder: learning_rate, train_placeholder: True})
             mean_batch_error += mb_erro
            
            
@@ -232,18 +239,21 @@ if train == True:
         #for m_i, minibatch in enumerate (tqdm(minibatches_train)):
         for m_i, minibatch in enumerate(minibatches_train):
             (minibatch_X, minibatch_Y) = minibatch
-            predict = sess.run(output_layer, feed_dict={X_placeholder: minibatch_X[:,:,:,:], train_placeholder: False})
-            evaluate_model(minibatch_X.copy(), minibatch_Y.copy(), predict.copy(), write_out=False) 
-        
+            minibatch_X = minibatch_X[:1]
+            minibatch_Y = minibatch_Y[:1]
+            coef_map = dct_prob_map(minibatch_Y[0,:,:,0])
 
-    save_path = saver.save(sess, "weights/model_1.ckpt")
-    print("new best model saved at ...", save_path)
-
+            predict = sess.run(output_layer, feed_dict={X_placeholder: minibatch_X[:,:,:,:1], dct_coefs_map: coef_map, train_placeholder: False})
+            quality = evaluate_model(minibatch_X.copy(), minibatch_Y.copy(), predict.copy(), write_out=False) 
+            if quality > best_quality and quality > 0.75:
+                best_quality = quality
+                #save_path = saver.save(sess, "weights/model_2.ckpt")
+                #print("new best model saved at ...", save_path)
 else:
 
-    (minibatch_X, minibatch_Y) = minibatches_valid[0]
-    #minibatch_X = minibatch_X[12:13]
-    #minibatch_Y = minibatch_Y[12:13]
+    (minibatch_X, minibatch_Y) = minibatches_test[0]
+    #minibatch_X = minibatch_X[:1]
+    #minibatch_Y = minibatch_Y[:1]
     predict = sess.run(output_layer, feed_dict={X_placeholder: minibatch_X[:,:,:,:1], train_placeholder: False})
     evaluate_model(minibatch_X.copy(), minibatch_Y.copy(), predict.copy(), write_out=True)
 

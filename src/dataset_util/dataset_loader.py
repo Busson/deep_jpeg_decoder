@@ -66,23 +66,45 @@ def load_minibatches(X_DATASET, Y_DATASET, mini_batch_size = 64):
     
     return mini_batches
 
+def load_yuv_image(filePath):
+    image_data = cv2.imread(filePath)
+    image_data = cv2.resize(image_data, (IMG_DEFAULT_SIZE, IMG_DEFAULT_SIZE)) 
+    image_data = cv2.cvtColor(image_data, cv2.COLOR_BGR2YUV)
+    return image_data
 
 def split_dataset(data_list, thr_1, thr_2):
     list_size = len(data_list)
     return data_list[: int(list_size*thr_1)], data_list[int(list_size*thr_1):int(list_size*thr_2)], data_list[int(list_size*thr_2):]
 
+
+def dct_prob_map(dct):
+    prob_map = np.zeros((1,IMG_DEFAULT_SIZE,IMG_DEFAULT_SIZE,1))
+    for i in range(IMG_DEFAULT_SIZE):
+        for j in range(IMG_DEFAULT_SIZE):
+            if dct[i,j] >= 1 or dct[i,j] <= -1:
+                prob_map[0,i,j,0] = 1
+
+    return prob_map
+
 def gen_x_and_y(SET):
 
     set_lenght = len(SET)
 
-    x_set = np.zeros((set_lenght,IMG_DEFAULT_SIZE,IMG_DEFAULT_SIZE,3))
-    y_set = np.zeros((set_lenght,IMG_DEFAULT_SIZE,IMG_DEFAULT_SIZE,3))
+    qtable_luma_100, qtable_chroma_100 = generate_qtables(quality_factor=100)
+    qtable_luma_10, qtable_chroma_10 = generate_qtables(quality_factor=10)
+
+    x_set = np.zeros((set_lenght,IMG_DEFAULT_SIZE,IMG_DEFAULT_SIZE,6))
+    y_set = np.zeros((set_lenght,IMG_DEFAULT_SIZE,IMG_DEFAULT_SIZE,6))
 
     for i, filePath in enumerate(SET):
         dct_100, dct_10 = load_dcts(filePath, ".png")
+        
+        x_set[i,:,:,:3] =  dct_10
+        x_set[i,:,:,3:] =  decode_image(dct_10, qtable_luma_10, qtable_chroma_10, in_bgr=False)
 
-        x_set[i,:,:,:] =  dct_10[:,:,:]
-        y_set[i,:,:,:] = dct_100[:,:,:]
+        y_set[i,:,:,:3] = dct_100
+        y_set[i,:,:,3:] = decode_image(dct_100, qtable_luma_100, qtable_chroma_100, in_bgr=False)
+
     
     return x_set, y_set
 

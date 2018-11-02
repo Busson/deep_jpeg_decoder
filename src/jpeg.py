@@ -242,10 +242,11 @@ def encode_image(image_data, qtable_luma, qtable_chroma):
     
     return dct_image
 
-def decode_image(dct_image, qtable_luma, qtable_chroma):
+def decode_image(dct_image, qtable_luma, qtable_chroma, in_bgr=True):
     dct_image = quantization_dct_image(dct_image, qtable_luma, qtable_chroma, op="unquantize")
     rest_image = restore_image(dct_image)
 
-    rest_image = cv2.cvtColor(rest_image, cv2.COLOR_YUV2BGR)
+    if in_bgr:
+        rest_image = cv2.cvtColor(rest_image, cv2.COLOR_YUV2BGR)
 
     return rest_image

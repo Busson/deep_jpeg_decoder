@@ -41,15 +41,18 @@ def evaluate_model(batch_x, batch_y, predict, write_out=False):
 
     for i in range(batch_lenght):
 
-        dct_10 = batch_x[i,:,:,:]
-        dct_100 = batch_y[i,:,:,:]
-        dct_100[:,:,:] = dct_100[:,:,:] + dct_10[:,:,:]
-
+        dct_10 = batch_x[i,:,:,:3]
+        dct_100 = batch_y[i,:,:,:3]
+    
         dct_pred = np.zeros((IMG_DEFAULT_SIZE,IMG_DEFAULT_SIZE,3))
         #dct_pred[:,:,0] = predict[i,:,:,0] + dct_10[:,:,0]
         dct_pred[:,:,0] = predict[i,:,:,0]
-        dct_pred[:,:,1] = predict[i,:,:,1]
-        dct_pred[:,:,2] = predict[i,:,:,2]
+        dct_pred[:,:,1] = dct_10[:,:,1]
+        dct_pred[:,:,2] = dct_10[:,:,2]
+
+        #print(dct_pred[:4,:4,0])
+        #print(" ")
+        #print(dct_100[:4,:4,0])
 
         dec_q_100 = decode_image(dct_100, qtable_luma_100, qtable_chroma_100)
         dec_q_10 = decode_image(dct_10, qtable_luma_10, qtable_chroma_10)
@@ -63,6 +66,8 @@ def evaluate_model(batch_x, batch_y, predict, write_out=False):
 
         mean_nrmse_p += calc_nrmse(dec_q_100, dec_pred)
         mean_nrmse_10 += calc_nrmse(dec_q_100, dec_q_10)
+
+        cv2.imwrite("test"+str(i)+".jpg", np.hstack([batch_x[i,:,:,3:4],batch_x[i,:,:,:1], batch_y[i,:,:,3:4], batch_y[i,:,:,:1]]))
 
         if write_out == True:
             stackList.append(np.hstack([dec_q_100, dec_q_10, dec_pred]))
@@ -79,7 +84,7 @@ def evaluate_model(batch_x, batch_y, predict, write_out=False):
 
     mean_nrmse_p = float(mean_nrmse_p/batch_lenght)
     mean_nrmse_10 = float(mean_nrmse_10/batch_lenght)
-
+    
     print("SSIM P:", mean_ssim_p, "10:", mean_ssim_10, "BEST:", best_ssim)
     print("PSNR P:", mean_psnr_p, "10:", mean_psnr_10)
     print("NRMSE P:", mean_nrmse_p, "10:", mean_nrmse_10)
@@ -87,3 +92,6 @@ def evaluate_model(batch_x, batch_y, predict, write_out=False):
     if write_out == True:
         stack = np.vstack(stackList)
         cv2.imwrite("evaluate.jpg", stack)
+
+    
+    return mean_ssim_p
